@@ -1,12 +1,12 @@
 import axios from 'axios';
-import { API_KEY } from '@/utils/WeatherAPIKey';
+import { apiKeyWorks } from '@/utils/WeatherAPIKey';
 
 export interface Forecast {
   cod: number;
   message: string;
   cnt: number;
   list: ForecastData[];
-  city: CityLocation[];
+  city: CityLocation;
 }
 
 interface ForecastData {
@@ -22,25 +22,24 @@ interface ForecastData {
     humidity: number;
     temp_kf: number;
   };
-  weather: [{
+  weather: Array<{
     id: number;
     main: string;
     description: string;
     icon: string;
-  }]
-  clouds: {all: number};
-  wind: {speed: number; deg: number; gust: number;};
+  }>;
+  clouds: { all: number };
+  wind: { speed: number; deg: number; gust: number };
   visibility: number;
   pop: number;
-  sys: {pod: string};
+  sys: { pod: string };
   dt_txt: string;
-  uvi: string;
 }
 
 interface CityLocation {
   id: number;
   name: string;
-  coord: {lat: number; lon: number};
+  coord: { lat: number; lon: number };
   country: string;
   population: number;
   timezone: number;
@@ -84,12 +83,22 @@ export interface ProcessedForecast {
 }
 
 export function useWeather() {
+  async function getApiKey(): Promise<string> {
+    const secureStore = await apiKeyWorks();
+    const apiKey = await secureStore.getData("API_KEY");
+    if (!apiKey) {
+      throw new Error("API Key não encontrada.");
+    }
+    return apiKey;
+  }
+
   async function geoResponse(city: string): Promise<GeoData> {
     try {
+      const apiKey = await getApiKey();
       const response = await axios.get(
-        `https://api.openweathermap.org/geo/1.0/direct?q=${city},&limit=5&appid=${API_KEY}`
+        `https://api.openweathermap.org/geo/1.0/direct?q=${city}&limit=5&appid=${apiKey}`
       );
-      return response.data;
+      return response.data; // Retorna o primeiro resultado
     } catch (error) {
       console.error("Erro ao buscar informações geográficas:", error);
       throw error;
@@ -98,11 +107,12 @@ export function useWeather() {
 
   async function forecastResponse(lat: number, lon: number): Promise<ProcessedForecast> {
     try {
+      const apiKey = await getApiKey();
       const response = await axios.get<ApiResponse>(
-        `http://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${API_KEY}&units=metric`
+        `http://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`
       );
       const groupedData = groupForecastByDay(response.data);
-  
+
       return {
         original: response.data,
         grouped: groupedData,
@@ -117,7 +127,7 @@ export function useWeather() {
     const grouped: GroupedForecast = {};
 
     apiResponse.list.forEach(item => {
-      const [date] = item.dt_txt.split(" ");
+      const [date, time] = item.dt_txt.split(" ");
 
       if (!grouped[date]) {
         grouped[date] = {
@@ -130,59 +140,63 @@ export function useWeather() {
         };
       }
 
-      grouped[date].forecasts.push({
-        time: item.dt_txt.split(" ")[1],
-        data: item,
-      });
+      grouped[date].forecasts.push({ time, data: item });
     });
 
-    for (const [date, group] of Object.entries(grouped)) {
-      const temperatures = group.forecasts.map(f => f.data.main.temp);
-      const minTemp = Math.min(...temperatures);
-      const maxTemp = Math.max(...temperatures);
-      const avgTemp = temperatures.reduce((sum, temp) => sum + temp, 0) / temperatures.length;
-
+    Object.values(grouped).forEach(group => {
+      const temps = group.forecasts.map(f => f.data.main.temp);
       group.averages = {
-        minTemp,
-        maxTemp,
-        avgTemp,
+        minTemp: Math.min(...temps),
+        maxTemp: Math.max(...temps),
+        avgTemp: temps.reduce((sum, temp) => sum + temp, 0) / temps.length,
       };
-    }
+    });
 
     return grouped;
   }
 
   async function UVResponse(lat: number, lon: number) {
     try {
-      const response = await axios.get(
-        `http://api.openweathermap.org/data/2.5/uvi?lat=${lat}&lon=${lon}&appid=${API_KEY}`
-      );
-  
-      const uvValue = response.data.value;
-      let uvClassification = "";
-  
-      if (uvValue >= 0 && uvValue <= 20) {
-        uvClassification = "Muito Baixo";
-      } else if (uvValue > 20 && uvValue <= 40) {
-        uvClassification = "Baixo";
-      } else if (uvValue > 40 && uvValue <= 60) {
-        uvClassification = "Alto";
-      } else if (uvValue > 60 && uvValue <= 80) {
-        uvClassification = "Muito Alto";
-      } else if (uvValue > 80 && uvValue <= 100) {
-        uvClassification = "Extremo";
-      } else {
-        uvClassification = "Fora do intervalo";
-      }
-  
-      return {
-        uvValue,
-        uvClassification,
-      };
+        const apiKey = await getApiKey();
+        const response = await axios.get(
+            `http://api.openweathermap.org/data/2.5/uvi?lat=${lat}&lon=${lon}&appid=${apiKey}`
+        );
+
+        const uvValue = response.data.value;
+        let uvClassification = "";
+
+        if (uvValue >= 0 && uvValue <= 20) {
+            uvClassification = "Muito Baixo";
+        } else if (uvValue > 20 && uvValue <= 40) {
+            uvClassification = "Baixo";
+        } else if (uvValue > 40 && uvValue <= 60) {
+            uvClassification = "Alto";
+        } else if (uvValue > 60 && uvValue <= 80) {
+            uvClassification = "Muito Alto";
+        } else if (uvValue > 80 && uvValue <= 100) {
+            uvClassification = "Extremo";
+        } else {
+            uvClassification = "Fora do intervalo";
+        }
+
+        return {
+            uvValue,
+            uvClassification,
+        };
     } catch (error) {
-      console.error("Erro ao buscar índice UV:", error);
+        console.error("Erro ao buscar índice UV:", error);
+        throw error;
     }
+}
+
+
+  function classifyUV(uvValue: number): string {
+    if (uvValue < 3) return "Baixo";
+    if (uvValue < 6) return "Moderado";
+    if (uvValue < 8) return "Alto";
+    if (uvValue < 11) return "Muito Alto";
+    return "Extremo";
   }
-  
+
   return { geoResponse, forecastResponse, UVResponse };
 }

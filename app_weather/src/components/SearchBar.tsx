@@ -21,6 +21,7 @@ export function SearchBar({ onLocationUpdate, onSearchStatus }: SearchBarProps) 
     try {
       const response = await apiWeather.geoResponse(searchText);
       onSearchStatus(true);
+      console.log(response);
       setLocations(response);
     } catch (error) {
       console.error("Erro ao buscar localização:", error);
@@ -35,7 +36,7 @@ export function SearchBar({ onLocationUpdate, onSearchStatus }: SearchBarProps) 
 
   const renderItem = ({ item }: { item: GeoData }) => (
     <TouchableOpacity style={styles.itemContainer} onPress={() => handleItemPress(item.lat, item.lon, item.name)}>
-      <Text style={styles.itemText}>{`${item.name}, ${item.state}, ${item.country}`}</Text>
+      <Text style={styles.itemText}>{`${item.name}, ${item.state ? item.state: item.country}, ${item.country}`}</Text>
     </TouchableOpacity>
   );
 
